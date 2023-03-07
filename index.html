@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Kings County Map</title>
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+</head>
+
+<style>
+  #tooltip,
+  #details {
+    position: absolute;
+    padding: 2px;
+    pointer-events: none;
+    border-radius: 4px;
+    box-shadow: 3px 3px 10px 0px rgba(0, 0, 0, 0.25);
+    font: 15px sans-serif;
+    color: #030303;
+    line-height: 1;
+    padding: 12px;
+    background: rgb(250, 247, 247);
+    color: rgb(19, 18, 18);
+    border-radius: 2px;
+  }
+</style>
+
+<body>
+  <h1 style="text-align: center;">King County Property Trend Analysis</h1>
+  <hr style='width:100%'>
+  <div class="row">
+    <div class="col-md-3">
+      <h3 style="text-align: center; padding-left: 50px;"> King's County, Washington</h3>
+      <svg id="map"></svg>
+    </div>
+
+    <div class="col-md-9">
+      <div id="scatterplot">
+        <div>
+          <select id="yaxis" onchange="drawScatterplot()">
+            <option value="price">Price</option>
+            <option selected value="bedrooms"># of Bedrooms</option>
+            <option value="bathrooms"># of Bathrooms</option>
+            <option value="sqft_living">Sq Ft Total</option>
+            <option value="sqft_lot">Sq Ft Lot</option>
+            <option value="sqft_basement">Sq Ft Basement</option>
+            <option value="yr_built">Year Built</option>
+          </select>
+        </div>
+        <div id="axis">
+          <select id="xaxis" onchange="drawScatterplot()">
+            <option selected value="price">Price</option>
+            <option value="bedrooms"># of Bedrooms</option>
+            <option value="bathrooms"># of Bathrooms</option>
+            <option value="sqft_living">Sq Ft Total</option>
+            <option value="sqft_lot">Sq Ft Lot</option>
+            <option value="sqft_basement">Sq Ft Basement</option>
+            <option value="yr_built">Year Built</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <script>
+
+    var mapData, houseData, y_attribute, x_attribute, filteredData, selectedZipCode
+
+
+    var tooltip = d3.select('body').append('div')
+      .attr('id', 'tooltip');
+
+    var details = d3.select('body').append('div')
+      .attr('id', 'details');
+
+    // Set  dimensions and margins of two way scatterplot
+    var margin = { top: 10, right: 250, bottom: 50, left: 100 },
+      width = 960 - margin.left - margin.right,
+      height = 500 - margin.top - margin.bottom;
+
+    Promise.all([d3.json('https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json'),
+    d3.csv('data/kc_house_data.csv')])
+      .then(function (values) {
+
+        mapData = values[0];
+        houseData = values[1];
+
+        houseData = houseData.filter(d => { return d.bedrooms <= 11 })
+
+        selectedZipCode = 'All'
+
+        drawMap()
+        drawScatterplot()
+
+
+      });
+    function drawMap() {
+      var kings = mapData.features.filter(function (d) { return d.properties.STATE === '36' && d.properties.COUNTY === '047'; });
+      var projection = d3.geoEquirectangular()
+        .center([-73.94, 40.67])
+        .scale(250000)
+        .translate([550, 500]);
+
+      // d3.select("#map").append('text')
+      // .attr('x' , 300)
+      // .attr('y' , 50)
+      // .style('font' , '50px sans-serif')
+      // .text("King's County, Washington")
+
+      var projection2 = d3.geoEquirectangular()
+        .center([-122.94, 47.67])
+        .scale(50000)
+        .translate([-200, 500]);
+
+      // Define path generator
+      var path = d3.geoPath()
+        .projection(projection);
+
+      d3.select("#map")
+        .attr("preserveAspectRatio", "xMinYMin meet")
+        .attr("viewBox", "0 0 " + (960) + " " + (960))
+      // Generate map
+      var map = d3.select("#map")
+        .selectAll("path")
+        .data(kings)
+        .enter()
+        .append("path")
+        .attr("d", path)
+        .attr("fill", "none")
+        .attr("stroke", "black");
+
+      let nestedZipCodes = d3.nest().key(function (d) {
+        return d.zipcode;
+      }).entries(houseData);
+
+      // Calculate center lat/lon positions for each zipcode
+      var zipCodesData = []
+      nestedZipCodes.forEach(element => {
+        let centerLat = d3.mean(element.values, function (d) { return +d.lat; });
+        let centerLong = d3.mean(element.values, function (d) { return +d.long; });
+        zipCodesData.push({ zipcode: element.key, lat: centerLat, long: centerLong })
+      });
+
+      // Map zipcodes on the map by lat and lon centers
+      var circles = d3.select("#map").append("g")
+        .attr("class", "circles");
+
+      // Loop through the data and create a datapoint for each datapoint
+      circles.selectAll("circle")
+        .data(zipCodesData)
+        .enter()
+        .append("circle").attr('id', 'zipcodes')
+        .attr("cx", function (d) {
+          return projection2([d.long, d.lat])[0];
+        })
+        .attr("cy", function (d) {
+          return projection2([d.long, d.lat])[1];
+        })
+        .attr("r", 10)
+        .attr('fill', 'steelblue')
+        .attr('stroke', 'steelblue')
+        .attr('stroke-opacity', 1)
+        .attr('fill-opacity', 0.5)
+        .on('mousemove', function (d) {
+          d3.select(this).style("cursor", "pointer");
+          d3.select("#tooltip")
+            .style('opacity', 1)
+            .html("<b>Zipcode:</b>" + d.zipcode)
+            .style("left", (d3.event.pageX) + "px")
+            .style("top", (d3.event.pageY - 40) + "px")
+            .style("fill-opacity", "0.5")
+        })
+        .on('mouseout', function (d) {
+          d3.select(this).style("cursor", "default");
+
+          d3.select("#tooltip").style('opacity', 0).html('')
+            .style("left", (0) + "px")
+            .style("top", (0) + "px")
+        })
+        .on('click', function (d) {
+
+          d3.selectAll('#zipcodes').attr('r', 10).attr('fill-opacity', 0.5).style("stroke", 'steelblue')
+          d3.select(this).style("stroke", 'black').attr('r', 20).attr('fill-opacity', 1);
+
+          selectedZipCode = d.zipcode
+          drawScatterplot()
+        })
+    }
+
+    function drawScatterplot() {
+
+      d3.select("#scatterplot svg").remove()
+
+      var brush = d3.brush().extent([[0, 0], [width, height]]).on("end", brushended),
+        idleTimeout,
+        idleDelay = 350;
+
+      var svg = d3.select("#scatterplot")
+        .append("svg")
+        .attr("preserveAspectRatio", "xMinYMin meet")
+        .attr("viewBox", "0 0 " + (width + margin.left + margin.right) + " " + (height + margin.top + margin.bottom))
+        .append("g")
+        .attr("transform",
+          "translate(" + margin.left + "," + margin.top + ")");
+
+      var clip = svg.append("defs").append("svg:clipPath")
+        .attr("id", "clip")
+        .append("svg:rect")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("x", 0)
+        .attr("y", 0);
+
+      if (selectedZipCode == 'All') {
+        filteredData = houseData
+      }
+      else {
+        filteredData = houseData.filter(d => { return d.zipcode == selectedZipCode })
+      }
+
+      d3.select('#axis').style('position', 'absolute').style("left", (margin.left + width) + "px")
+        .style("top", (500) + "px")
+
+      x_attribute = d3.select('#xaxis').property('value')
+      y_attribute = d3.select('#yaxis').property('value')
+
+      // Add X axis filter
+      var x = d3.scaleLinear()
+        .domain(d3.extent(houseData, function (d) { return +d[x_attribute]; }))
+        .range([0, width]).nice();
+
+      var scatter = svg.append("g")
+        .attr("id", "scatterplot")
+        .attr("clip-path", "url(#clip)");
+      var min = d3.extent(houseData, function (d) { return +d[y_attribute] })[0]
+      var max = d3.extent(houseData, function (d) { return +d[y_attribute] })[1]
+      // Add Y axis filter
+      var y = d3.scaleLinear()
+        .domain([min, max + 1])
+        .range([height, 0]).nice();
+
+      var xAxis = d3.axisBottom(x),
+        yAxis = d3.axisLeft(y);
+
+      svg.append("g").attr("class", "x axis").attr('id', "axis--x")
+        .attr("transform", "translate(0," + height + ")")
+        .call(xAxis);
+
+      svg.append("g").attr("class", "y axis")
+        .attr('id', "axis--y")
+        .call(yAxis);
+
+      scatter.append("g")
+        .attr("class", "brush")
+        .call(brush);
+
+      d3.select("#details")
+        .style('opacity', 1)
+        .html("<h4>Hover Over a Datapoint for Details <br> Drag to Zoom In, Double Click to Zoom Out</h4>")
+        .style("left", (margin.left + width + 300) + "px")
+        .style("top", (100) + "px")
+
+      // Add each datapoint
+      scatter.append('g')
+        .selectAll("dot")
+        .data(filteredData)
+        .enter()
+        .append("circle")
+        .attr("cx", function (d) { return x(+d[x_attribute]); })
+        .attr("cy", function (d) { return y(+d[y_attribute]); })
+        .attr("r", 4)
+        .attr('fill', 'steelblue')
+        .attr('stroke', 'steelblue')
+        .attr('stroke-opacity', 1)
+        .attr('fill-opacity', 0.5)
+        .on('mousemove', function (d) {
+
+          d3.select(this).style("cursor", "pointer").attr('r', 7).style("stroke", 'black');
+          d3.select("#details")
+            .style('opacity', 1)
+            .html("<h2><u><b>Property Details</b></u></h2>" +
+              "<b>Zipcode: </b>" + d.zipcode +
+              "</br><b>Price Sold: </b>$" + (+d.price).toLocaleString() +
+              "</br><b>Year Sold: </b>" + d.date.slice(0, 4) +
+              "</br><b>Year Built: </b>" + d.yr_built +
+              "</br><b>Number of Bedrooms: </b>" + d.bedrooms +
+              "</br><b>Number of Bathrooms: </b>" + d.bathrooms +
+              "</br><b>Number of Sq ft: </b>" + d.sqft_living + "</b></b></b>")
+        })
+        .on('mouseout', function (d) {
+          d3.select(this).style("cursor", "default").attr('r', 4).style("stroke", 'steelblue');
+
+          d3.select("#details").html("<h4>Hover Over a Datapoint for Details <br> Drag to Zoom In, Double Click to Zoom Out</h4>")
+        })
+
+
+      function brushended() {
+
+        var s = d3.event.selection;
+        if (!s) {
+          if (!idleTimeout) return idleTimeout = setTimeout(idled, idleDelay);
+          var min = d3.extent(houseData, function (d) { return +d[y_attribute] })[0]
+          var max = d3.extent(houseData, function (d) { return +d[y_attribute] })[1]
+
+          x.domain(d3.extent(houseData, function (d) { return +d[x_attribute]; })).nice();
+          y.domain([min, max + 1]).nice();
+        } else {
+
+          x.domain([s[0][0], s[1][0]].map(x.invert, x));
+          y.domain([s[1][1], s[0][1]].map(y.invert, y));
+          scatter.select(".brush").call(brush.move, null);
+        }
+        zoom();
+      }
+
+      function idled() {
+        idleTimeout = null;
+      }
+
+      function zoom() {
+
+        var t = scatter.transition().duration(750);
+        svg.select("#axis--x").transition(t).call(xAxis);
+        svg.select("#axis--y").transition(t).call(yAxis);
+        scatter.selectAll("circle").transition(t)
+          .attr("cx", function (d) { return x(+d[x_attribute]); })
+          .attr("cy", function (d) { return y(+d[y_attribute]); })
+
+      }
+
+    }
+
+
+  </script>
+</body>
+
+</html>
